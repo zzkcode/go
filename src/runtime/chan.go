@@ -158,6 +158,7 @@ func chansend1(c *hchan, elem unsafe.Pointer) {
  * the operation; we'll see that it's now closed.
  */
 func chansend(c *hchan, ep unsafe.Pointer, block bool, callerpc uintptr) bool {
+	// zzkcode: block is true for simple chansend, false for selectnbsend.
 	if c == nil {
 		if !block {
 			return false
@@ -201,11 +202,13 @@ func chansend(c *hchan, ep unsafe.Pointer, block bool, callerpc uintptr) bool {
 
 	lock(&c.lock)
 
+	// zzkcode: never send on a closed channel
 	if c.closed != 0 {
 		unlock(&c.lock)
 		panic(plainError("send on closed channel"))
 	}
 
+	// zzkcode: there are waiting receiver, just sendDirect(memmove) to its stack and wait it up.
 	if sg := c.recvq.dequeue(); sg != nil {
 		// Found a waiting receiver. We pass the value we want to send
 		// directly to the receiver, bypassing the channel buffer (if any).
@@ -213,6 +216,7 @@ func chansend(c *hchan, ep unsafe.Pointer, block bool, callerpc uintptr) bool {
 		return true
 	}
 
+	// zzkcode: not waiting receiver
 	if c.qcount < c.dataqsiz {
 		// Space is available in the channel buffer. Enqueue the element to send.
 		qp := chanbuf(c, c.sendx)
@@ -222,6 +226,7 @@ func chansend(c *hchan, ep unsafe.Pointer, block bool, callerpc uintptr) bool {
 		typedmemmove(c.elemtype, qp, ep)
 		c.sendx++
 		if c.sendx == c.dataqsiz {
+			// zzkcode: reset sendx
 			c.sendx = 0
 		}
 		c.qcount++
@@ -256,6 +261,7 @@ func chansend(c *hchan, ep unsafe.Pointer, block bool, callerpc uintptr) bool {
 	// changes and when we set gp.activeStackChans is not safe for
 	// stack shrinking.
 	gp.parkingOnChan.Store(true)
+	// zzkcode: no one is receiving and chan is full(buffered chan), just block on chansend, waiting for someone to wake us up
 	gopark(chanparkcommit, unsafe.Pointer(&c.lock), waitReasonChanSend, traceBlockChanSend, 2)
 	// Ensure the value being sent is kept alive until the
 	// receiver copies it out. The sudog has a pointer to the
@@ -355,12 +361,14 @@ func recvDirect(t *_type, sg *sudog, dst unsafe.Pointer) {
 }
 
 func closechan(c *hchan) {
+	// zzkcode: never close a nil channel
 	if c == nil {
 		panic(plainError("close of nil channel"))
 	}
 
 	lock(&c.lock)
 	if c.closed != 0 {
+		// zzkcode: never close same channel twice
 		unlock(&c.lock)
 		panic(plainError("close of closed channel"))
 	}
@@ -535,6 +543,7 @@ func chanrecv(c *hchan, ep unsafe.Pointer, block bool) (selected, received bool)
 	}
 
 	if c.qcount > 0 {
+		// zzkcode: qcount > 0, there are datas in queue
 		// Receive directly from queue
 		qp := chanbuf(c, c.recvx)
 		if raceenabled {
@@ -580,6 +589,7 @@ func chanrecv(c *hchan, ep unsafe.Pointer, block bool) (selected, received bool)
 	// changes and when we set gp.activeStackChans is not safe for
 	// stack shrinking.
 	gp.parkingOnChan.Store(true)
+	// zzkcode: no sender, no datas in channel, just block waiting new data
 	gopark(chanparkcommit, unsafe.Pointer(&c.lock), waitReasonChanReceive, traceBlockChanRecv, 2)
 
 	// someone woke us up
@@ -614,6 +624,7 @@ func chanrecv(c *hchan, ep unsafe.Pointer, block bool) (selected, received bool)
 // A non-nil ep must point to the heap or the caller's stack.
 func recv(c *hchan, sg *sudog, ep unsafe.Pointer, unlockf func(), skip int) {
 	if c.dataqsiz == 0 {
+		// zzkcode: unbuffered channel, just recvDirect without any further action
 		if raceenabled {
 			racesync(c, sg)
 		}
@@ -622,6 +633,7 @@ func recv(c *hchan, sg *sudog, ep unsafe.Pointer, unlockf func(), skip int) {
 			recvDirect(c.elemtype, sg, ep)
 		}
 	} else {
+		// zzkcode: this is buffered channel, and there is someone waiting for send, so the Queue should be full now
 		// Queue is full. Take the item at the
 		// head of the queue. Make the sender enqueue
 		// its item at the tail of the queue. Since the
@@ -639,6 +651,7 @@ func recv(c *hchan, sg *sudog, ep unsafe.Pointer, unlockf func(), skip int) {
 		typedmemmove(c.elemtype, qp, sg.elem)
 		c.recvx++
 		if c.recvx == c.dataqsiz {
+			// zzkcode: reset recvx
 			c.recvx = 0
 		}
 		c.sendx = c.recvx // c.sendx = (c.sendx+1) % c.dataqsiz
@@ -651,6 +664,7 @@ func recv(c *hchan, sg *sudog, ep unsafe.Pointer, unlockf func(), skip int) {
 	if sg.releasetime != 0 {
 		sg.releasetime = cputicks()
 	}
+	// zzkcode: wake up waiting sender since it can proceed now
 	goready(gp, skip+1)
 }
 
