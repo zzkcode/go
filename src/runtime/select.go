@@ -162,6 +162,7 @@ func selectgo(cas0 *scase, order0 *uint16, pc0 *uintptr, nsends, nrecvs int, blo
 	// cases correctly, and they are rare enough not to bother
 	// optimizing (and needing to test).
 
+	// zzkcode: select case random order
 	// generate permuted order
 	norder := 0
 	for i := range scases {
@@ -173,6 +174,8 @@ func selectgo(cas0 *scase, order0 *uint16, pc0 *uintptr, nsends, nrecvs int, blo
 			continue
 		}
 
+		// zzkcode: fisher-yates shuffle
+		// zzkcode: walk scases, and switch current-case(i) with one random case before it(including itself) -> [0, i], all cases at about 1/n ratio
 		j := fastrandn(uint32(norder + 1))
 		pollorder[norder] = pollorder[j]
 		pollorder[j] = uint16(i)
