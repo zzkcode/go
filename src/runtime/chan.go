@@ -456,6 +456,7 @@ func chanrecv2(c *hchan, elem unsafe.Pointer) (received bool) {
 	return
 }
 
+// zzkcode: selected -> if case could be selected; received -> if we really value, but only non-zero value
 // chanrecv receives on channel c and writes the received data to ep.
 // ep may be nil, in which case received data is ignored.
 // If block == false and no elements are available, returns (false, false).
@@ -505,6 +506,7 @@ func chanrecv(c *hchan, ep unsafe.Pointer, block bool) (selected, received bool)
 				raceacquire(c.raceaddr())
 			}
 			if ep != nil {
+				// zzkcode: closed chan, return zero value
 				typedmemclr(c.elemtype, ep)
 			}
 			return true, false
